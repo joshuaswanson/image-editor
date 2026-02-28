@@ -1,10 +1,11 @@
 import argparse
 import math
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
-import torch
-from diffusers import Flux2KleinPipeline
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 def parse_aspect_ratio(ratio_str: str) -> tuple[int, int]:
@@ -29,101 +30,56 @@ def compute_target_dimensions(
     target_ratio = ratio_w / ratio_h
 
     if target_ratio > orig_ratio:
-        # Wider than original: extend horizontally, keep height
         target_h = orig_h
         target_w = round(target_h * target_ratio)
     else:
-        # Taller than original: extend vertically, keep width
         target_w = orig_w
         target_h = round(target_w / target_ratio)
 
-    # Round up to nearest multiple of 16
     target_w = math.ceil(target_w / 16) * 16
     target_h = math.ceil(target_h / 16) * 16
 
     return target_w, target_h
 
 
-def create_green_canvas(
+def create_canvas_and_mask(
     image: Image.Image, target_w: int, target_h: int
-) -> Image.Image:
-    """Place the original image centered on a green (0,255,0) canvas."""
-    canvas = Image.new("RGB", (target_w, target_h), (0, 255, 0))
+) -> tuple[Image.Image, Image.Image]:
+    """Place the original image centered on a canvas and create a mask for the extended regions."""
     paste_x = (target_w - image.width) // 2
     paste_y = (target_h - image.height) // 2
+
+    canvas = Image.new("RGB", (target_w, target_h), (0, 0, 0))
     canvas.paste(image, (paste_x, paste_y))
-    return canvas
 
-
-def load_pipeline() -> Flux2KleinPipeline:
-    """Load the FLUX.2 Klein pipeline with the outpainting LoRA on MPS."""
-    model_id = "black-forest-labs/FLUX.2-klein-4B"
-    lora_repo = "fal/flux-2-klein-4B-outpaint-lora"
-    lora_filename = "flux-outpaint-lora.safetensors"
-
-    print(f"Loading pipeline from {model_id}...")
-    pipe = Flux2KleinPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
-
-    print(f"Loading outpainting LoRA from {lora_repo}...")
-    pipe.load_lora_weights(lora_repo, weight_name=lora_filename, adapter_name="outpaint")
-    pipe.set_adapters(["outpaint"], adapter_weights=[1.1])
-
-    pipe.to("mps")
-    pipe.enable_attention_slicing()
-    try:
-        pipe.vae.enable_tiling()
-    except Exception:
-        pass
-
-    return pipe
-
-
-def run_outpaint(
-    pipe: Flux2KleinPipeline,
-    canvas: Image.Image,
-    prompt: str,
-    seed: int | None,
-    width: int,
-    height: int,
-) -> Image.Image:
-    """Run the outpainting pipeline."""
-    generator = None
-    if seed is not None:
-        generator = torch.Generator(device="cpu").manual_seed(seed)
-
-    result = pipe(
-        prompt=prompt,
-        image=canvas,
-        height=height,
-        width=width,
-        num_inference_steps=4,
-        guidance_scale=1.0,
-        generator=generator,
+    # White = regenerate, black = keep
+    mask = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+    draw = ImageDraw.Draw(mask)
+    draw.rectangle(
+        [paste_x, paste_y, paste_x + image.width - 1, paste_y + image.height - 1],
+        fill=(0, 0, 0),
     )
-    return result.images[0]
+
+    return canvas, mask
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Outpaint an image to a target aspect ratio using FLUX.2 Klein."
+        description="Outpaint an image to a target aspect ratio using FLUX.1-Fill-dev via mflux."
     )
     parser.add_argument("image", help="Path to the input image")
     parser.add_argument("ratio", help="Target aspect ratio (e.g. 16:9)")
     parser.add_argument(
         "--prompt",
-        default="Fill the green spaces according to the image",
+        default="",
         help="Prompt describing the outpainted content",
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
     parser.add_argument(
         "--output", "-o", default=None, help="Output path (default: <input>_outpainted.png)"
     )
-    parser.add_argument(
-        "--max-dim",
-        type=int,
-        default=1024,
-        help="Max generation dimension (default: 1024). Larger images are scaled down for generation then scaled back up.",
-    )
+    parser.add_argument("--steps", type=int, default=25, help="Number of inference steps (default: 25)")
+    parser.add_argument("--guidance", type=float, default=30.0, help="Guidance scale (default: 30)")
 
     args = parser.parse_args()
 
@@ -146,43 +102,57 @@ def main():
         print("Image already matches the target aspect ratio. Nothing to do.")
         sys.exit(0)
 
-    # Scale down if needed for generation
-    max_dim = args.max_dim
-    scale_factor = 1.0
-    if max(target_w, target_h) > max_dim:
-        scale_factor = max_dim / max(target_w, target_h)
-        gen_w = math.ceil((target_w * scale_factor) / 16) * 16
-        gen_h = math.ceil((target_h * scale_factor) / 16) * 16
-        scaled_image = image.resize(
-            (round(orig_w * scale_factor), round(orig_h * scale_factor)),
-            Image.Resampling.LANCZOS,
-        )
-        print(f"Scaled down for generation: {gen_w}x{gen_h} (factor {scale_factor:.3f})")
-    else:
-        gen_w, gen_h = target_w, target_h
-        scaled_image = image
+    # Create canvas with image centered and mask for extended regions
+    canvas, mask = create_canvas_and_mask(image, target_w, target_h)
 
-    # Create green canvas
-    canvas = create_green_canvas(scaled_image, gen_w, gen_h)
+    canvas_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    canvas_path = canvas_file.name
+    canvas.save(canvas_path)
+    canvas_file.close()
 
-    # Load pipeline and run
-    pipe = load_pipeline()
-    print(f"Running outpaint ({gen_w}x{gen_h}, 4 steps)...")
-    result = run_outpaint(pipe, canvas, args.prompt, args.seed, gen_w, gen_h)
+    mask_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    mask_path = mask_file.name
+    mask.save(mask_path)
+    mask_file.close()
 
-    # Scale back up if we downscaled
-    if scale_factor < 1.0:
-        result = result.resize((target_w, target_h), Image.Resampling.LANCZOS)
-        print(f"Scaled result back up to {target_w}x{target_h}")
-
-    # Save output
-    if args.output:
-        output_path = args.output
-    else:
+    # Build mflux command
+    output_path = args.output
+    if output_path is None:
         stem = args.image.rsplit(".", 1)[0]
         output_path = f"{stem}_outpainted.png"
 
-    result.save(output_path)
+    cmd = [
+        "mflux-generate-fill",
+        "--image-path", canvas_path,
+        "--masked-image-path", mask_path,
+        "--prompt", args.prompt,
+        "-q", "8",
+        "--steps", str(args.steps),
+        "--guidance", str(args.guidance),
+        "--height", str(target_h),
+        "--width", str(target_w),
+        "--output", output_path,
+    ]
+    if args.seed is not None:
+        cmd.extend(["--seed", str(args.seed)])
+
+    print(f"Running: {' '.join(cmd)}")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        print(
+            "Error: mflux-generate-fill not found. Make sure mflux is installed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        print(f"Error: mflux-generate-fill exited with code {e.returncode}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        Path(canvas_path).unlink(missing_ok=True)
+        Path(mask_path).unlink(missing_ok=True)
+
     print(f"Saved: {output_path}")
 
 
