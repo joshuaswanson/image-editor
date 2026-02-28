@@ -1,0 +1,23 @@
+[project]
+name = "outpaint-tool"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "diffusers @ git+https://github.com/huggingface/diffusers.git",
+    "transformers",
+    "accelerate",
+    "Pillow",
+    "sentencepiece",
+    "protobuf",
+]
+
+[project.scripts]
+outpaint = "outpaint_tool.cli:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
