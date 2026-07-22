@@ -27,6 +27,25 @@ from plyfile import PlyData
 SH_C0 = 0.28209479177387814  # 0th-order spherical-harmonic coefficient
 
 
+def predict_ply(image_path: str | Path, out_dir: str | Path, device: "str | None" = None) -> Path:
+    """Run SHARP predict as a subprocess and return the produced .ply path.
+
+    A subprocess keeps SHARP's large model out of the web server's memory (it
+    loads, predicts, and frees), leaving FLUX as the only resident model.
+    """
+    import subprocess
+    import sys
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sharp_bin = Path(sys.executable).parent / "sharp"
+    cmd = [str(sharp_bin), "predict", "-i", str(image_path), "-o", str(out_dir), "--no-render"]
+    if device:
+        cmd += ["--device", device]
+    subprocess.run(cmd, check=True)
+    return out_dir / f"{Path(image_path).stem}.ply"
+
+
 def focal_px(width: int, height: int, f_mm: float = 30.0) -> float:
     """SHARP's focal-length convention (30mm-equivalent on a full-frame diagonal)."""
     return f_mm * np.sqrt(width**2 + height**2) / np.sqrt(36**2 + 24**2)

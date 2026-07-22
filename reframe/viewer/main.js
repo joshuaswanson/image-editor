@@ -737,7 +737,7 @@ let defaultViewMatrix = [
 ];
 let viewMatrix = defaultViewMatrix;
 async function main() {
-    let carousel = true;
+    let carousel = false; // hold still for the reframe preview; the user drags to orbit
     const params = new URLSearchParams(location.search);
     try {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
@@ -781,6 +781,7 @@ async function main() {
 
     const gl = canvas.getContext("webgl2", {
         antialias: false,
+        preserveDrawingBuffer: true, // allow toDataURL capture for the reframe pipeline
     });
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -1355,6 +1356,7 @@ async function main() {
         const currentFps = 1000 / (now - lastFrame) || 0;
         avgFps = avgFps * 0.9 + currentFps * 0.1;
 
+        gl.clearColor(...(window.__bg || [0, 0, 0]), 1.0); // reframe capture sets __bg
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
@@ -1380,6 +1382,21 @@ async function main() {
     };
 
     frame();
+
+    // Reframe hook: render one frame over the given background and return it as a
+    // PNG data URL. Calling with black then white lets the pipeline find holes
+    // (pixels that change with the background are see-through and need filling).
+    window.captureFrame = (r, g, b) =>
+        new Promise((resolve) => {
+            window.__bg = [r, g, b];
+            requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                    const data = canvas.toDataURL("image/png");
+                    window.__bg = [0, 0, 0];
+                    resolve(data);
+                }),
+            );
+        });
 
     const isPly = (splatData) =>
         splatData[0] == 112 &&

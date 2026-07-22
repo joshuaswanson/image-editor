@@ -51,6 +51,7 @@
   .drop-hint strong { color: var(--ink); font-weight: 600; }
   .drop-hint .plus { font-size: 34px; display: block; margin-bottom: 10px; color: var(--accent); }
   #regionBox { position: absolute; border: 2px solid var(--accent); background: rgba(13,148,136,.18); pointer-events: none; display: none; }
+  #splatFrame { width: 100%; height: 520px; border: 0; display: block; background: #000; border-radius: 12px; }
 
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   label.field { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
@@ -73,6 +74,9 @@
   .sub { font-size: 12px; color: var(--muted); }
   .switch { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14px; }
   .switch input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+  .reframe-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+  .reframe-row span { width: 72px; flex-shrink: 0; }
+  .reframe-row input { flex: 1; }
 
   button.primary {
     width: 100%; border: 0; background: var(--accent); color: #fff; font: inherit; font-weight: 600;
@@ -121,6 +125,7 @@
           <strong>Drop an image here</strong><br>or click to browse
         </div>
         <img id="preview" class="hidden" alt="">
+        <iframe id="splatFrame" class="hidden" title="3D preview"></iframe>
         <div id="regionBox"></div>
       </div>
       <input type="file" id="fileInput" accept="image/*" class="hidden">
@@ -135,6 +140,7 @@
         <div class="seg" id="modeSeg">
           <button data-mode="outpaint" class="on">Extend</button>
           <button data-mode="inpaint">Fill region</button>
+          <button data-mode="reframe">Reframe</button>
         </div>
       </div>
 
@@ -155,6 +161,12 @@
       <div class="block hidden" id="inpaintCtl">
         <label class="field">Region to regenerate</label>
         <p class="sub" id="regionText">Drag a box on the image to select an area.</p>
+      </div>
+
+      <!-- Reframe controls -->
+      <div class="block hidden" id="reframeCtl">
+        <label class="field">Move the camera</label>
+        <p class="sub" id="reframeHint">Drag the 3D preview to choose a new viewpoint, then Generate. FLUX fills whatever the move reveals. Small moves look best.</p>
       </div>
 
       <div class="block">
@@ -201,18 +213,24 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { file: null, mode: "outpaint", ratio: "1:1", region: null, natW: 0, natH: 0, previewing: false };
+const state = { file: null, mode: "outpaint", ratio: "1:1", region: null, natW: 0, natH: 0, previewing: false, prepId: null };
+const splatFrame = document.getElementById("splatFrame");
 
 // ---- Upload handling ----
 const stage = $("stage"), fileInput = $("fileInput"), preview = $("preview");
-stage.addEventListener("click", () => { if (state.mode !== "inpaint" || !state.file) fileInput.click(); });
+stage.addEventListener("click", () => {
+  if (state.mode === "inpaint" && state.file) return;   // inpaint uses drag-select
+  if (state.mode === "reframe" && state.prepId) return; // the 3D viewer handles clicks
+  fileInput.click();
+});
 fileInput.addEventListener("change", e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
 ["dragenter","dragover"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.add("drag"); }));
 ["dragleave","drop"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.remove("drag"); }));
 stage.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
 
 function loadFile(file) {
-  state.file = file; state.region = null; state.previewing = false; hideRegion();
+  state.file = file; state.region = null; state.previewing = false; state.prepId = null; hideRegion();
+  splatFrame.classList.add("hidden"); splatFrame.src = "about:blank";
   const url = URL.createObjectURL(file);
   preview.onload = () => {
     // Intermediate previews stream in at a scaled-down size; don't let them
@@ -226,6 +244,7 @@ function loadFile(file) {
     $("goBtn").disabled = false;
     resetProgress();
     $("resultActions").classList.add("hidden");
+    if (state.mode === "reframe") prepareReframe();
   };
   preview.src = url;
 }
@@ -237,9 +256,48 @@ $("modeSeg").addEventListener("click", e => {
   [...$("modeSeg").children].forEach(b => b.classList.toggle("on", b === btn));
   $("outpaintCtl").classList.toggle("hidden", state.mode !== "outpaint");
   $("inpaintCtl").classList.toggle("hidden", state.mode !== "inpaint");
-  $("stageTitle").textContent = state.mode === "inpaint" ? "Image · drag to select" : "Image";
+  $("reframeCtl").classList.toggle("hidden", state.mode !== "reframe");
+  $("stageTitle").textContent = state.mode === "inpaint" ? "Image · drag to select"
+    : state.mode === "reframe" ? "Image · drag to orbit" : "Image";
   hideRegion(); state.region = null;
+  if (state.mode === "reframe") { if (state.file) prepareReframe(); }
+  else { splatFrame.classList.add("hidden"); if (state.file) preview.classList.remove("hidden"); }
 });
+
+// ---- Reframe: build the 3D splat preview ----
+async function prepareReframe() {
+  if (!state.file) return;
+  if (state.prepId) { showSplat(); return; }  // already built for this image
+  preview.classList.add("hidden");
+  showProgress(); indeterminate("Building 3D scene with SHARP… (first time per image)");
+  const fd = new FormData(); fd.append("image", state.file);
+  let res;
+  try { res = await fetch("/api/reframe/prepare", { method: "POST", body: fd }); }
+  catch { flashError("Could not reach the server."); return; }
+  const data = await res.json();
+  if (!res.ok) { flashError(data.error || "3D prediction failed."); return; }
+  state.prepId = data.id;
+  showSplat();
+  resetProgress();
+}
+
+function showSplat() {
+  const url = location.origin + "/api/splat/" + state.prepId;
+  // Start at SHARP's original camera (origin, looking +z), flipping y and z for
+  // the viewer's OpenGL convention so the splat opens front-on like the photo.
+  const view = [1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1];
+  splatFrame.src = "/viewer/index.html?url=" + encodeURIComponent(url)
+    + "#" + encodeURIComponent(JSON.stringify(view));
+  splatFrame.classList.remove("hidden");
+  preview.classList.add("hidden");
+}
+
+function dataURLtoBlob(dataURL) {
+  const [head, body] = dataURL.split(",");
+  const bytes = atob(body), arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: head.match(/:(.*?);/)[1] });
+}
 
 // ---- Ratio chips ----
 $("ratioChips").addEventListener("click", e => {
@@ -289,18 +347,29 @@ function hideRegion() { box.style.display = "none"; }
 
 // ---- Generate ----
 $("goBtn").addEventListener("click", async () => {
-  if (!state.file) return;
+  if (state.mode === "reframe") { if (!state.prepId) { flashError("3D preview not ready yet."); return; } }
+  else if (!state.file) return;
   if (state.mode === "inpaint" && !state.region) { flashError("Drag a box on the image first."); return; }
 
   const fd = new FormData();
-  fd.append("image", state.file);
   fd.append("mode", state.mode);
   fd.append("prompt", $("prompt").value);
   fd.append("steps", $("steps").value);
   fd.append("seed", $("seed").value.trim());
   fd.append("preview", $("livePreview").checked ? "1" : "0");
-  if (state.mode === "outpaint") fd.append("ratio", state.ratio);
-  else fd.append("region", state.region.join(","));
+  if (state.mode === "outpaint") { fd.append("image", state.file); fd.append("ratio", state.ratio); }
+  else if (state.mode === "inpaint") { fd.append("image", state.file); fd.append("region", state.region.join(",")); }
+  else {
+    // Capture the viewer's chosen viewpoint over black and white to find holes.
+    const win = splatFrame.contentWindow;
+    if (!win || !win.captureFrame) { flashError("3D preview not ready yet."); return; }
+    const black = await win.captureFrame(0, 0, 0);
+    const white = await win.captureFrame(1, 1, 1);
+    fd.append("frame_black", dataURLtoBlob(black), "black.png");
+    fd.append("frame_white", dataURLtoBlob(white), "white.png");
+    // Show the fill result in the image panel instead of the 3D preview.
+    splatFrame.classList.add("hidden"); preview.classList.remove("hidden");
+  }
 
   state.previewing = $("livePreview").checked;
   setBusy(true);
@@ -315,7 +384,9 @@ $("goBtn").addEventListener("click", async () => {
   const src = new EventSource(`/api/events/${data.job_id}`);
   src.onmessage = ev => {
     const m = JSON.parse(ev.data);
-    if (m.phase === "loading") { indeterminate("Loading FLUX model… (first run only)"); }
+    if (m.phase === "sharp") { indeterminate("Building 3D scene with SHARP… (first time per image)"); }
+    else if (m.phase === "rendering") { indeterminate("Rendering the new viewpoint…"); }
+    else if (m.phase === "loading") { indeterminate("Loading FLUX model… (first run only)"); }
     else if (m.phase === "preparing") { indeterminate("Preparing…"); }
     else if (m.phase === "generating") { determinate(m.step, m.total); if (m.preview) preview.src = m.preview; }
     else if (m.phase === "done") { src.close(); finish(m.url); }

@@ -6,6 +6,7 @@ so the loading bar reflects real step-by-step progress.
 """
 
 import argparse
+import hashlib
 import json
 import queue
 import tempfile
@@ -22,10 +23,53 @@ from image_editor.fill import FillModel
 from image_editor.inpaint import create_mask, parse_region
 
 STATIC_DIR = Path(__file__).parent / "static"
+VIEWER_DIR = Path(__file__).parent.parent / "reframe" / "viewer"
+# SHARP .ply/.splat files are cached here, keyed by image content, so re-opening
+# the same photo skips the slow 3D prediction.
+PLY_CACHE = Path(tempfile.gettempdir()) / "imgedit_ply_cache"
 
 app = Flask(__name__, static_folder=None)
 
 FILL = FillModel(quantize=8)
+
+
+def _prepare_splat(input_png: Path) -> str:
+    """Predict a SHARP splat for this image (cached) and return its cache id."""
+    from image_editor.reframe import predict_ply
+    from image_editor.reframe_convert import ply_to_splat
+
+    PLY_CACHE.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha1(input_png.read_bytes()).hexdigest()
+    splat = PLY_CACHE / f"{digest}.splat"
+    if not splat.exists():
+        ply = PLY_CACHE / f"{digest}.ply"
+        if not ply.exists():
+            predict_ply(input_png, PLY_CACHE / digest).replace(ply)
+        ply_to_splat(ply, splat)
+    return digest
+
+
+def _frames_to_canvas(job_dir: Path):
+    """Turn the viewer's two captured frames into a fill canvas and mask.
+
+    The frame over black is the reframed image. Pixels that differ between the
+    black- and white-background captures are see-through (holes), so their
+    difference is the fill mask. Both are padded to a multiple of 16 for FLUX.
+    """
+    import numpy as np
+
+    black = np.asarray(Image.open(job_dir / "frame_black.png").convert("RGB"))
+    white = np.asarray(Image.open(job_dir / "frame_white.png").convert("RGB"))
+    holes = np.abs(black.astype(np.int16) - white.astype(np.int16)).sum(axis=2) > 24
+
+    h, w = holes.shape
+    tw, th = _round_up_16(w), _round_up_16(h)
+    canvas = Image.new("RGB", (tw, th), (0, 0, 0))
+    canvas.paste(Image.fromarray(black), (0, 0))
+    mask_arr = np.zeros((th, tw), np.uint8)
+    mask_arr[:h, :w] = np.where(holes, 255, 0)
+    mask = Image.fromarray(mask_arr, "L").convert("RGB")
+    return canvas, mask, tw, th, (0, 0, w, h)
 
 # job_id -> {"queue": Queue, "dir": Path, "output": Path | None}
 JOBS: dict[str, dict] = {}
@@ -44,14 +88,18 @@ def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, preview_ever
     job = JOBS[job_id]
     job_dir = job["dir"]
     try:
-        image = Image.open(job_dir / "input.png").convert("RGB")
-
-        if mode == "outpaint":
+        if mode == "reframe":
+            # The viewer already rendered the moved-camera frames client-side.
+            _emit(job, {"phase": "rendering"})
+            canvas, mask, target_w, target_h, crop_box = _frames_to_canvas(job_dir)
+        elif mode == "outpaint":
+            image = Image.open(job_dir / "input.png").convert("RGB")
             ratio_w, ratio_h = parse_aspect_ratio(params["ratio"])
             target_w, target_h = compute_target_dimensions(image.width, image.height, ratio_w, ratio_h)
             canvas, mask = create_canvas_and_mask(image, target_w, target_h)
             crop_box = None
         else:  # inpaint
+            image = Image.open(job_dir / "input.png").convert("RGB")
             x1, y1, x2, y2 = parse_region(params["region"])
             # FLUX fill needs dimensions that are multiples of 16; pad if needed
             # and crop the result back to the original size afterwards.
@@ -107,11 +155,41 @@ def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
 
-@app.route("/api/process", methods=["POST"])
-def process():
+@app.route("/viewer/")
+def viewer_index():
+    return send_from_directory(VIEWER_DIR, "index.html")
+
+
+@app.route("/viewer/<path:filename>")
+def viewer(filename):
+    return send_from_directory(VIEWER_DIR, filename)
+
+
+@app.route("/api/splat/<sid>")
+def splat(sid):
+    path = PLY_CACHE / f"{sid}.splat"
+    if not path.exists() or ".." in sid or "/" in sid:
+        return jsonify({"error": "Unknown splat"}), 404
+    return send_file(path, mimetype="application/octet-stream")
+
+
+@app.route("/api/reframe/prepare", methods=["POST"])
+def reframe_prepare():
+    """Predict the 3D splat for an uploaded image so the viewer can show it."""
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
+    tmp = Path(tempfile.mkdtemp(prefix="imgedit_prep_"))
+    img = Image.open(request.files["image"].stream).convert("RGB")
+    img.save(tmp / "input.png")
+    try:
+        sid = _prepare_splat(tmp / "input.png")
+    except Exception as exc:
+        return jsonify({"error": f"3D prediction failed: {exc}"}), 500
+    return jsonify({"id": sid, "width": img.width, "height": img.height})
 
+
+@app.route("/api/process", methods=["POST"])
+def process():
     mode = request.form.get("mode", "outpaint")
     prompt = request.form.get("prompt", "")
     steps = int(request.form.get("steps", 25))
@@ -122,15 +200,27 @@ def process():
 
     job_id = uuid.uuid4().hex
     job_dir = Path(tempfile.mkdtemp(prefix=f"imgedit_{job_id}_"))
-    Image.open(request.files["image"].stream).convert("RGB").save(job_dir / "input.png")
 
-    params = {"ratio": request.form.get("ratio", "1:1"), "region": request.form.get("region", "")}
+    if mode == "reframe":
+        if "frame_black" not in request.files or "frame_white" not in request.files:
+            return jsonify({"error": "Missing rendered frames"}), 400
+        Image.open(request.files["frame_black"].stream).convert("RGB").save(job_dir / "frame_black.png")
+        Image.open(request.files["frame_white"].stream).convert("RGB").save(job_dir / "frame_white.png")
+    else:
+        if "image" not in request.files:
+            return jsonify({"error": "No image uploaded"}), 400
+        Image.open(request.files["image"].stream).convert("RGB").save(job_dir / "input.png")
+
+    params = {
+        "ratio": request.form.get("ratio", "1:1"),
+        "region": request.form.get("region", ""),
+    }
 
     # Validate arguments before spawning the worker so errors return synchronously.
     try:
         if mode == "outpaint":
             parse_aspect_ratio(params["ratio"])
-        else:
+        elif mode == "inpaint":
             parse_region(params["region"])
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
