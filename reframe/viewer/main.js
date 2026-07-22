@@ -1051,9 +1051,9 @@ async function main() {
         e.preventDefault();
         if (down == 1) {
             let inv = invert4(viewMatrix);
-            let dx = (5 * (e.clientX - startX)) / innerWidth;
-            let dy = (5 * (e.clientY - startY)) / innerHeight;
-            let d = 4;
+            let dx = (1.5 * (e.clientX - startX)) / innerWidth;
+            let dy = (1.5 * (e.clientY - startY)) / innerHeight;
+            let d = 1; // pivot near the subject (~1 unit away) so it orbits in place
 
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(inv, dx, 0, 1, 0);
