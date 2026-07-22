@@ -1,6 +1,6 @@
 # Image Editor
 
-A simple, bare-bones CLI and GUI for inpainting and outpainting with FLUX.1-Fill-dev. It runs locally on an Apple Silicon Mac through mflux, on the Metal GPU. No images leave your machine.
+A simple CLI and GUI for inpainting and outpainting with FLUX.1-Fill-dev. It runs locally on an Apple Silicon Mac through mflux, on the Metal GPU. No images leave your machine.
 
 ## Requirements
 
