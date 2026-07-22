@@ -1,6 +1,6 @@
 # Image Editor
 
-Image Editor is a tool for local image edits on an Apple Silicon Mac. It uses the FLUX.1-Fill-dev model through mflux. All operations run on the Metal GPU of your Mac. The tool does not send your images to a network.
+A tool for local image edits on an Apple Silicon Mac. It uses the FLUX.1-Fill-dev model through mflux. All operations run on the Metal GPU of your Mac. The tool does not send your images to a network.
 
 The tool has two interfaces: a web page and a command line.
 
@@ -46,27 +46,6 @@ uv run image-editor-web
 
 The tool starts a local server. The default address is `http://127.0.0.1:5005`. The tool opens the page in your web browser.
 
-To make an edit, do these steps:
-
-1. Put an image on the left panel. To do this, move the image onto the panel, or click the panel to select a file.
-2. Select the edit type. Click **Extend** for an outpaint. Click **Fill region** for an inpaint.
-3. For an inpaint, make a box on the image. To make the box, hold the mouse button and move the pointer. The box shows the area to fill.
-4. Type a prompt if you want one. Set the number of steps. Set a seed if you want one.
-5. Click **Generate**.
-
-While the model runs, a progress bar shows each phase:
-
-- the model load (on the first edit only)
-- the preparation
-- each step, with a percentage
-
-If **Live preview** is on, the panel shows the image after each step. As a result, you see the result as it forms.
-
-When the edit is complete, do one of these steps:
-
-- Click **Download** to save the result.
-- Click **Use as input** to put the result back as the input for a new edit.
-
 The tool loads the model one time and keeps it in memory. As a result, only the first edit waits for the load. Each edit after the first starts immediately.
 
 To change the host, the port, or the browser behavior, use these options:
@@ -111,29 +90,3 @@ inpaint <image> --region x1,y1,x2,y2 [--prompt TEXT] [--steps N] [--guidance G] 
 ```
 
 The default output file is `<input>_inpainted.png`.
-
-## How the tool works
-
-An outpaint and an inpaint use the same operation. The tool makes a canvas and a mask. Then the model fills the area that the mask shows.
-
-- For an outpaint, the tool puts the original image at the center of a larger canvas. The mask shows the new border.
-- For an inpaint, the tool uses the original image as the canvas. The mask shows the area that you selected.
-
-The model does not keep the original pixels fixed. The model removes noise from the full canvas. At the same time, the model uses the original image as an example. Then the model makes the kept area again to match the original. For this reason, the full image is fuzzy at the start of the live preview.
-
-The tool puts your original image on the kept area of each preview frame. As a result, only the new area shows the model output during the edit.
-
-The live preview works in this way:
-
-1. The model completes a step.
-2. The tool decodes the step data into a small image.
-3. The tool sends the image to the browser with Server-Sent Events.
-
-The decode adds time to each step. For this reason, Live preview is an option that you can turn off.
-
-## Notes
-
-- A prompt is optional. If you do not give a prompt, the model uses only the image around the area.
-- More steps give better quality but a longer time. The default is 25 steps. More than 35 steps gives a small change only.
-- A larger canvas needs more time for each step.
-- The saved file has the model's version of the kept area. This can be a little different from your original pixels. The preview overlay does not change the saved file.
