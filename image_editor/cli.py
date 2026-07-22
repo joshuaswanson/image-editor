@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from image_editor.fill import normalize_prompt
+
 
 def parse_aspect_ratio(ratio_str: str) -> tuple[int, int]:
     """Parse '16:9' into (16, 9)."""
@@ -125,7 +127,7 @@ def main():
         "mflux-generate-fill",
         "--image-path", canvas_path,
         "--masked-image-path", mask_path,
-        "--prompt", args.prompt,
+        "--prompt", normalize_prompt(args.prompt),
         "-q", "8",
         "--steps", str(args.steps),
         "--guidance", str(args.guidance),

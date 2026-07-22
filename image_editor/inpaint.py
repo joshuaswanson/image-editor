@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from image_editor.fill import normalize_prompt
+
 
 def parse_region(region_str: str) -> tuple[int, int, int, int]:
     """Parse 'x1,y1,x2,y2' into a coordinate tuple."""
@@ -86,7 +88,7 @@ def main():
         "mflux-generate-fill",
         "--image-path", args.image,
         "--masked-image-path", mask_path,
-        "--prompt", args.prompt,
+        "--prompt", normalize_prompt(args.prompt),
         "-q", "8",
         "--steps", str(args.steps),
         "--guidance", str(args.guidance),
