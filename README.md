@@ -47,7 +47,7 @@ uv sync --extra reframe
 
 To reframe, open the web page, load an image, and select the **Reframe** mode. The tool uses Apple's SHARP model to turn the photo into a 3D Gaussian splat and shows the splat in the image panel. Drag the splat to choose a new viewpoint, then click **Generate**. FLUX.1-Fill paints the newly revealed areas.
 
-The SHARP model downloads on the first reframe (about 3 GB) and is used only for research. Small camera moves give the best results.
+The SHARP model downloads on the first reframe (about 3 GB). Small camera moves give the best results.
 
 ## Command line
 
