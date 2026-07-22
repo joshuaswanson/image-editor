@@ -51,7 +51,7 @@
   .drop-hint strong { color: var(--ink); font-weight: 600; }
   .drop-hint .plus { font-size: 34px; display: block; margin-bottom: 10px; color: var(--accent); }
   #regionBox { position: absolute; border: 2px solid var(--accent); background: rgba(13,148,136,.18); pointer-events: none; display: none; }
-  #splatFrame { width: 100%; height: 520px; border: 0; display: block; background: #000; border-radius: 12px; }
+  #splatFrame { border: 0; display: block; background: #000; border-radius: 12px; }
 
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   label.field { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
@@ -283,9 +283,15 @@ async function prepareReframe() {
 
 function showSplat() {
   const url = location.origin + "/api/splat/" + state.prepId;
+  const w = state.natW, h = state.natH;
+  // Size the viewer to the photo's aspect so the splat isn't stretched.
+  let fh = 540, fw = Math.round(fh * w / h);
+  const stageW = stage.clientWidth - 40;
+  if (fw > stageW) { fw = stageW; fh = Math.round(stageW * h / w); }
+  splatFrame.style.width = fw + "px";
+  splatFrame.style.height = fh + "px";
   // Open at SHARP's original camera (identity = the photo's viewpoint) with a
   // focal matched to SHARP's optics, so the splat starts framed like the photo.
-  const w = state.natW, h = state.natH;
   const fpx = 30 * Math.sqrt(w*w + h*h) / Math.sqrt(36*36 + 24*24);
   const view = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
   splatFrame.src = "/viewer/index.html?url=" + encodeURIComponent(url)
@@ -363,13 +369,11 @@ $("goBtn").addEventListener("click", async () => {
   if (state.mode === "outpaint") { fd.append("image", state.file); fd.append("ratio", state.ratio); }
   else if (state.mode === "inpaint") { fd.append("image", state.file); fd.append("region", state.region.join(",")); }
   else {
-    // Capture the viewer's chosen viewpoint over black and white to find holes.
+    // Capture the viewer's chosen viewpoint (RGBA; transparent areas are holes).
     const win = splatFrame.contentWindow;
     if (!win || !win.captureFrame) { flashError("3D preview not ready yet."); return; }
-    const black = await win.captureFrame(0, 0, 0);
-    const white = await win.captureFrame(1, 1, 1);
-    fd.append("frame_black", dataURLtoBlob(black), "black.png");
-    fd.append("frame_white", dataURLtoBlob(white), "white.png");
+    const frame = await win.captureFrame();
+    fd.append("frame", dataURLtoBlob(frame), "frame.png");
     // Show the fill result in the image panel instead of the 3D preview.
     splatFrame.classList.add("hidden"); preview.classList.remove("hidden");
   }

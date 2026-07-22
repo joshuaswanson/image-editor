@@ -49,23 +49,25 @@ def _prepare_splat(input_png: Path) -> str:
     return digest
 
 
-def _frames_to_canvas(job_dir: Path):
-    """Turn the viewer's two captured frames into a fill canvas and mask.
+def _frame_to_canvas(job_dir: Path):
+    """Turn the viewer's captured RGBA frame into a fill canvas and mask.
 
-    The frame over black is the reframed image. Pixels that differ between the
-    black- and white-background captures are see-through (holes), so their
-    difference is the fill mask. Both are padded to a multiple of 16 for FLUX.
+    The viewer renders the moved camera with a transparent background, so the
+    alpha channel is the coverage: transparent pixels are the holes the camera
+    move revealed. Both are padded to a multiple of 16 for FLUX.
     """
     import numpy as np
+    from scipy.ndimage import binary_dilation
 
-    black = np.asarray(Image.open(job_dir / "frame_black.png").convert("RGB"))
-    white = np.asarray(Image.open(job_dir / "frame_white.png").convert("RGB"))
-    holes = np.abs(black.astype(np.int16) - white.astype(np.int16)).sum(axis=2) > 24
+    rgba = np.asarray(Image.open(job_dir / "frame.png").convert("RGBA"))
+    rgb = rgba[:, :, :3]
+    holes = rgba[:, :, 3] < 32  # transparent = revealed area to fill
+    holes = binary_dilation(holes, iterations=2)  # cover the soft splat fringe
 
     h, w = holes.shape
     tw, th = _round_up_16(w), _round_up_16(h)
     canvas = Image.new("RGB", (tw, th), (0, 0, 0))
-    canvas.paste(Image.fromarray(black), (0, 0))
+    canvas.paste(Image.fromarray(rgb), (0, 0))
     mask_arr = np.zeros((th, tw), np.uint8)
     mask_arr[:h, :w] = np.where(holes, 255, 0)
     mask = Image.fromarray(mask_arr, "L").convert("RGB")
@@ -91,7 +93,7 @@ def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, preview_ever
         if mode == "reframe":
             # The viewer already rendered the moved-camera frames client-side.
             _emit(job, {"phase": "rendering"})
-            canvas, mask, target_w, target_h, crop_box = _frames_to_canvas(job_dir)
+            canvas, mask, target_w, target_h, crop_box = _frame_to_canvas(job_dir)
         elif mode == "outpaint":
             image = Image.open(job_dir / "input.png").convert("RGB")
             ratio_w, ratio_h = parse_aspect_ratio(params["ratio"])
@@ -202,10 +204,9 @@ def process():
     job_dir = Path(tempfile.mkdtemp(prefix=f"imgedit_{job_id}_"))
 
     if mode == "reframe":
-        if "frame_black" not in request.files or "frame_white" not in request.files:
-            return jsonify({"error": "Missing rendered frames"}), 400
-        Image.open(request.files["frame_black"].stream).convert("RGB").save(job_dir / "frame_black.png")
-        Image.open(request.files["frame_white"].stream).convert("RGB").save(job_dir / "frame_white.png")
+        if "frame" not in request.files:
+            return jsonify({"error": "Missing rendered frame"}), 400
+        Image.open(request.files["frame"].stream).convert("RGBA").save(job_dir / "frame.png")
     else:
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400

@@ -736,6 +736,24 @@ let defaultViewMatrix = [
     0.03, 6.55, 1,
 ];
 let viewMatrix = defaultViewMatrix;
+
+// Re-level a camera->world matrix so the horizon stays flat: keep the forward
+// direction (pitch/yaw), but force the right axis horizontal so there is no roll.
+function levelRoll(inv) {
+    let fx = inv[8], fy = inv[9], fz = inv[10];
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    let rx = fz, ry = 0, rz = -fx; // cross(forward, worldUp=(0,-1,0)) -> horizontal
+    const rl = Math.hypot(rx, ry, rz) || 1;
+    rx /= rl; ry /= rl; rz /= rl;
+    const ux = fy * rz - fz * ry;
+    const uy = fz * rx - fx * rz;
+    const uz = fx * ry - fy * rx;
+    inv[0] = rx; inv[1] = ry; inv[2] = rz;
+    inv[4] = ux; inv[5] = uy; inv[6] = uz;
+    inv[8] = fx; inv[9] = fy; inv[10] = fz;
+}
+
 async function main() {
     let carousel = false; // hold still for the reframe preview; the user drags to orbit
     const params = new URLSearchParams(location.search);
@@ -781,7 +799,6 @@ async function main() {
 
     const gl = canvas.getContext("webgl2", {
         antialias: false,
-        preserveDrawingBuffer: true, // allow toDataURL capture for the reframe pipeline
     });
 
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -1042,9 +1059,7 @@ async function main() {
             inv = rotate4(inv, dx, 0, 1, 0);
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
-            // let postAngle = Math.atan2(inv[0], inv[10])
-            // inv = rotate4(inv, postAngle - preAngle, 0, 0, 1)
-            // console.log(postAngle)
+            levelRoll(inv); // keep pitch/yaw only, no roll
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
@@ -1366,13 +1381,19 @@ async function main() {
 
         const currentFps = 1000 / (now - lastFrame) || 0;
         avgFps = avgFps * 0.9 + currentFps * 0.1;
-
-        gl.clearColor(...(window.__bg || [0, 0, 0]), 1.0); // reframe capture sets __bg
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            // Reframe capture: read the canvas in-frame (no preserveDrawingBuffer,
+            // which breaks rendering on this GPU). The RGBA has alpha where the
+            // splat covers, so the transparent areas are the holes to fill.
+            if (window.__captureCb) {
+                const cb = window.__captureCb;
+                window.__captureCb = null;
+                cb(canvas.toDataURL("image/png"));
+            }
         } else {
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
@@ -1394,20 +1415,13 @@ async function main() {
 
     frame();
 
-    // Reframe hook: render one frame over the given background and return it as a
-    // PNG data URL. Calling with black then white lets the pipeline find holes
-    // (pixels that change with the background are see-through and need filling).
+    // Reframe hook: set the clear background, then the render loop captures the
+    // next frame in-place (see __captureCb above) and resolves with a PNG data
+    // URL. Calling with black then white lets the pipeline find see-through holes.
     window.getView = () => viewMatrix.slice();
-    window.captureFrame = (r, g, b) =>
+    window.captureFrame = () =>
         new Promise((resolve) => {
-            window.__bg = [r, g, b];
-            requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                    const data = canvas.toDataURL("image/png");
-                    window.__bg = [0, 0, 0];
-                    resolve(data);
-                }),
-            );
+            window.__captureCb = resolve;
         });
 
     const isPly = (splatData) =>
