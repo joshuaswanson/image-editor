@@ -11,3 +11,8 @@ build/
 *_outpainted.png
 *_inpainted.png
 image.jpeg
+
+# Reframe (SHARP) generated 3D artifacts
+reframe/out/
+*.ply
+*.splat
