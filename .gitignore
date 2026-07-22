@@ -6,3 +6,8 @@ __pycache__/
 dist/
 build/
 .claude/
+
+# Generated output and local test images
+*_outpainted.png
+*_inpainted.png
+image.jpeg

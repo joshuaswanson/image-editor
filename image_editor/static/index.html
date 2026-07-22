@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Editor · FLUX</title>
+<style>
+  :root {
+    --bg: #f6f6f9;
+    --card: #ffffff;
+    --ink: #1c1d22;
+    --muted: #71727a;
+    --line: #e7e7ee;
+    --accent: #6c5ce7;
+    --accent-soft: #efedfd;
+    --ok: #17b26a;
+    --err: #e5484d;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(20,20,40,.04), 0 8px 30px rgba(20,20,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f14; --card: #17181f; --ink: #ecedf1; --muted: #9a9ba6;
+      --line: #262733; --accent: #8b7cf6; --accent-soft: #21203a; --shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 24px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 28px; }
+  header h1 { font-size: 22px; font-weight: 650; letter-spacing: -.02em; margin: 0; }
+  header .tag { font-size: 13px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 16px; font-weight: 600; }
+
+  /* Drop / preview area */
+  .stage { position: relative; border-radius: 12px; overflow: hidden; background: repeating-conic-gradient(#0000000a 0% 25%, transparent 0% 50%) 50% / 20px 20px; min-height: 260px; display: flex; align-items: center; justify-content: center; }
+  .stage.empty { border: 1.5px dashed var(--line); cursor: pointer; transition: border-color .15s, background .15s; }
+  .stage.empty.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .stage img { display: block; max-width: 100%; max-height: 520px; }
+  .drop-hint { text-align: center; color: var(--muted); padding: 40px; pointer-events: none; }
+  .drop-hint strong { color: var(--ink); font-weight: 600; }
+  .drop-hint .plus { font-size: 34px; display: block; margin-bottom: 10px; color: var(--accent); }
+  #regionBox { position: absolute; border: 2px solid var(--accent); background: rgba(108,92,231,.18); pointer-events: none; display: none; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  label.field { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .block { margin-bottom: 18px; }
+
+  .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow); font-weight: 550; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 7px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; transition: all .12s; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  input[type=text], textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 10px; padding: 10px 12px; font: inherit; resize: vertical;
+  }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .sub { font-size: 12px; color: var(--muted); }
+
+  button.primary {
+    width: 100%; border: 0; background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+    padding: 13px; border-radius: 12px; cursor: pointer; transition: filter .12s; margin-top: 4px;
+  }
+  button.primary:hover { filter: brightness(1.06); }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+
+  /* Progress */
+  .progress { margin-top: 18px; display: none; }
+  .progress.show { display: block; }
+  .bar { height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+  .bar > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #a78bfa); border-radius: 999px; transition: width .3s ease; }
+  .bar.indet > span { width: 40%; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+  .plabel { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; color: var(--muted); }
+  .plabel .pct { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .err { color: var(--err); font-size: 13px; margin-top: 10px; }
+
+  .result-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Image Editor</h1>
+    <span class="tag">FLUX.1-Fill · running locally</span>
+  </header>
+
+  <div class="grid">
+    <!-- Left: image stage -->
+    <div class="card">
+      <h2 id="stageTitle">Image</h2>
+      <div id="stage" class="stage empty">
+        <div class="drop-hint" id="dropHint">
+          <span class="plus">+</span>
+          <strong>Drop an image here</strong><br>or click to browse
+        </div>
+        <img id="preview" class="hidden" alt="">
+        <div id="regionBox"></div>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" class="hidden">
+      <p class="sub" id="stageMeta" style="margin:10px 2px 0"></p>
+    </div>
+
+    <!-- Right: controls -->
+    <div class="card">
+      <h2>Edit</h2>
+
+      <div class="block">
+        <div class="seg" id="modeSeg">
+          <button data-mode="outpaint" class="on">Extend</button>
+          <button data-mode="inpaint">Fill region</button>
+        </div>
+      </div>
+
+      <!-- Outpaint controls -->
+      <div class="block" id="outpaintCtl">
+        <label class="field">Target shape</label>
+        <div class="chips" id="ratioChips">
+          <span class="chip on" data-ratio="1:1">Square 1:1</span>
+          <span class="chip" data-ratio="16:9">Wide 16:9</span>
+          <span class="chip" data-ratio="9:16">Tall 9:16</span>
+          <span class="chip" data-ratio="4:3">4:3</span>
+          <span class="chip" data-ratio="3:2">3:2</span>
+          <span class="chip" data-ratio="4:5">4:5</span>
+        </div>
+      </div>
+
+      <!-- Inpaint controls -->
+      <div class="block hidden" id="inpaintCtl">
+        <label class="field">Region to regenerate</label>
+        <p class="sub" id="regionText">Drag a box on the image to select an area.</p>
+      </div>
+
+      <div class="block">
+        <label class="field" for="prompt">Prompt <span class="sub">(optional)</span></label>
+        <textarea id="prompt" rows="2" placeholder="Describe what should fill the new area…"></textarea>
+      </div>
+
+      <div class="block">
+        <label class="field">Steps · <span id="stepsVal">25</span></label>
+        <input type="range" id="steps" min="4" max="50" value="25">
+        <span class="sub">Fewer is faster, more is higher quality.</span>
+      </div>
+
+      <div class="block">
+        <label class="field" for="seed">Seed <span class="sub">(optional)</span></label>
+        <input type="text" id="seed" inputmode="numeric" placeholder="random">
+      </div>
+
+      <button class="primary" id="goBtn" disabled>Generate</button>
+
+      <div class="progress" id="progress">
+        <div class="bar indet" id="bar"><span></span></div>
+        <div class="plabel"><span id="phaseText">Starting…</span><span class="pct" id="pctText"></span></div>
+        <div class="err hidden" id="errText"></div>
+      </div>
+
+      <div class="result-actions hidden" id="resultActions">
+        <a class="ghost" id="downloadBtn" download="edited.png">Download</a>
+        <button class="ghost" id="reuseBtn">Use as input</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { file: null, mode: "outpaint", ratio: "1:1", region: null, natW: 0, natH: 0 };
+
+// ---- Upload handling ----
+const stage = $("stage"), fileInput = $("fileInput"), preview = $("preview");
+stage.addEventListener("click", () => { if (state.mode !== "inpaint" || !state.file) fileInput.click(); });
+fileInput.addEventListener("change", e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+["dragenter","dragover"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.remove("drag"); }));
+stage.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+function loadFile(file) {
+  state.file = file; state.region = null; hideRegion();
+  const url = URL.createObjectURL(file);
+  preview.onload = () => {
+    state.natW = preview.naturalWidth; state.natH = preview.naturalHeight;
+    $("stageMeta").textContent = `${state.natW} × ${state.natH}px`;
+    $("dropHint").classList.add("hidden");
+    preview.classList.remove("hidden");
+    stage.classList.remove("empty");
+    $("goBtn").disabled = false;
+    resetProgress();
+    $("resultActions").classList.add("hidden");
+  };
+  preview.src = url;
+}
+
+// ---- Mode toggle ----
+$("modeSeg").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  state.mode = btn.dataset.mode;
+  [...$("modeSeg").children].forEach(b => b.classList.toggle("on", b === btn));
+  $("outpaintCtl").classList.toggle("hidden", state.mode !== "outpaint");
+  $("inpaintCtl").classList.toggle("hidden", state.mode !== "inpaint");
+  $("stageTitle").textContent = state.mode === "inpaint" ? "Image · drag to select" : "Image";
+  hideRegion(); state.region = null;
+});
+
+// ---- Ratio chips ----
+$("ratioChips").addEventListener("click", e => {
+  const chip = e.target.closest(".chip"); if (!chip) return;
+  state.ratio = chip.dataset.ratio;
+  [...$("ratioChips").children].forEach(c => c.classList.toggle("on", c === chip));
+});
+
+// ---- Steps ----
+$("steps").addEventListener("input", e => $("stepsVal").textContent = e.target.value);
+
+// ---- Inpaint region selection (drag on image) ----
+const box = $("regionBox");
+let dragging = false, start = null;
+function displayRect() { return preview.getBoundingClientRect(); }
+function toImageCoords(clientX, clientY) {
+  const r = displayRect();
+  const sx = state.natW / r.width, sy = state.natH / r.height;
+  return {
+    x: Math.round(Math.min(Math.max(clientX - r.left, 0), r.width) * sx),
+    y: Math.round(Math.min(Math.max(clientY - r.top, 0), r.height) * sy),
+  };
+}
+preview.addEventListener("mousedown", e => {
+  if (state.mode !== "inpaint") return;
+  e.preventDefault(); dragging = true; start = { cx: e.clientX, cy: e.clientY };
+});
+window.addEventListener("mousemove", e => {
+  if (!dragging) return;
+  const r = displayRect();
+  const x = Math.min(start.cx, e.clientX), y = Math.min(start.cy, e.clientY);
+  const w = Math.abs(e.clientX - start.cx), h = Math.abs(e.clientY - start.cy);
+  box.style.display = "block";
+  box.style.left = (x - r.left + preview.offsetLeft) + "px";
+  box.style.top = (y - r.top + preview.offsetTop) + "px";
+  box.style.width = w + "px"; box.style.height = h + "px";
+});
+window.addEventListener("mouseup", e => {
+  if (!dragging) return; dragging = false;
+  const a = toImageCoords(start.cx, start.cy), b = toImageCoords(e.clientX, e.clientY);
+  const x1 = Math.min(a.x, b.x), y1 = Math.min(a.y, b.y), x2 = Math.max(a.x, b.x), y2 = Math.max(a.y, b.y);
+  if (x2 - x1 < 8 || y2 - y1 < 8) { hideRegion(); state.region = null; return; }
+  state.region = [x1, y1, x2, y2];
+  $("regionText").textContent = `Selected: ${x1},${y1} → ${x2},${y2}  (${x2-x1}×${y2-y1}px)`;
+});
+function hideRegion() { box.style.display = "none"; }
+
+// ---- Generate ----
+$("goBtn").addEventListener("click", async () => {
+  if (!state.file) return;
+  if (state.mode === "inpaint" && !state.region) { flashError("Drag a box on the image first."); return; }
+
+  const fd = new FormData();
+  fd.append("image", state.file);
+  fd.append("mode", state.mode);
+  fd.append("prompt", $("prompt").value);
+  fd.append("steps", $("steps").value);
+  fd.append("seed", $("seed").value.trim());
+  if (state.mode === "outpaint") fd.append("ratio", state.ratio);
+  else fd.append("region", state.region.join(","));
+
+  setBusy(true);
+  showProgress("loading"); $("phaseText").textContent = "Uploading…";
+
+  let res;
+  try { res = await fetch("/api/process", { method: "POST", body: fd }); }
+  catch { flashError("Could not reach the server."); setBusy(false); return; }
+  const data = await res.json();
+  if (!res.ok) { flashError(data.error || "Request failed."); setBusy(false); return; }
+
+  const src = new EventSource(`/api/events/${data.job_id}`);
+  src.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.phase === "loading") { indeterminate("Loading FLUX model… (first run only)"); }
+    else if (m.phase === "preparing") { indeterminate("Preparing…"); }
+    else if (m.phase === "generating") { determinate(m.step, m.total); }
+    else if (m.phase === "done") { src.close(); finish(m.url); }
+    else if (m.phase === "error") { src.close(); flashError(m.message); setBusy(false); }
+  };
+  src.onerror = () => { src.close(); if (!$("resultActions").classList.contains("hidden")) return; flashError("Connection lost."); setBusy(false); };
+});
+
+// ---- Progress UI helpers ----
+function showProgress() { $("progress").classList.add("show"); $("errText").classList.add("hidden"); }
+function resetProgress() { $("progress").classList.remove("show"); }
+function indeterminate(text) { $("bar").classList.add("indet"); $("bar").firstElementChild.style.width = ""; $("phaseText").textContent = text; $("pctText").textContent = ""; }
+function determinate(step, total) {
+  const pct = Math.round(step / total * 100);
+  $("bar").classList.remove("indet");
+  $("bar").firstElementChild.style.width = pct + "%";
+  $("phaseText").textContent = `Generating · step ${step} of ${total}`;
+  $("pctText").textContent = pct + "%";
+}
+function finish(url) {
+  $("bar").classList.remove("indet");
+  $("bar").firstElementChild.style.width = "100%";
+  $("phaseText").textContent = "Done"; $("pctText").textContent = "100%";
+  const bust = url + "?t=" + Date.now();
+  preview.src = bust;
+  preview.onload = () => { state.natW = preview.naturalWidth; state.natH = preview.naturalHeight; $("stageMeta").textContent = `${state.natW} × ${state.natH}px`; };
+  $("downloadBtn").href = bust;
+  $("resultActions").classList.remove("hidden");
+  state.resultUrl = url;
+  setBusy(false);
+}
+function flashError(msg) { showProgress(); $("errText").textContent = msg; $("errText").classList.remove("hidden"); $("phaseText").textContent = "Failed"; }
+function setBusy(b) { $("goBtn").disabled = b; $("goBtn").textContent = b ? "Working…" : "Generate"; }
+
+// Reuse result as the new input for chained edits.
+$("reuseBtn").addEventListener("click", async () => {
+  if (!state.resultUrl) return;
+  const blob = await (await fetch(state.resultUrl)).blob();
+  loadFile(new File([blob], "edited.png", { type: "image/png" }));
+});
+</script>
+</body>
+</html>

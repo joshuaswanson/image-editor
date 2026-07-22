@@ -5,11 +5,13 @@ requires-python = ">=3.11"
 dependencies = [
     "Pillow",
     "mflux",
+    "flask",
 ]
 
 [project.scripts]
 outpaint = "image_editor.cli:main"
 inpaint = "image_editor.inpaint:main"
+image-editor-web = "image_editor.web:main"
 
 [build-system]
 requires = ["hatchling"]
