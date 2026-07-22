@@ -1,25 +1,6 @@
 # Image Editor
 
-A tool for local image edits on an Apple Silicon Mac. It uses the FLUX.1-Fill-dev model through mflux. All operations run on the Metal GPU of your Mac. The tool does not send your images to a network.
-
-The tool has two interfaces: a web page and a command line.
-
-## Terms
-
-- Outpaint: an operation that makes the image larger and fills the new area.
-- Inpaint: an operation that fills a selected area of the image.
-- Step: one cycle of the model that removes some noise.
-- Mask: a black and white image. White shows the area to fill. Black shows the area to keep.
-- Prompt: text that tells the model what to put in the new area.
-
-## Features
-
-- The tool extends an image to a new aspect ratio. It does not cut the original image.
-- The tool fills a selected area of the image. A prompt can control the new content.
-- The live preview shows the image after each step.
-- The original image stays clear in the preview. Only the new area changes.
-- The tool loads the model one time and keeps it in memory.
-- All operations run on the Metal GPU with MLX.
+A simple, bare-bones CLI and GUI for inpainting and outpainting with FLUX.1-Fill-dev. It runs locally on an Apple Silicon Mac through mflux, on the Metal GPU. No images leave your machine.
 
 ## Requirements
 
