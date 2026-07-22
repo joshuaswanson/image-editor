@@ -168,7 +168,7 @@
 
       <div class="block">
         <label class="switch">
-          <input type="checkbox" id="preview" checked>
+          <input type="checkbox" id="livePreview" checked>
           <span>Live preview <span class="sub">— watch each step (a bit slower)</span></span>
         </label>
       </div>
@@ -288,11 +288,11 @@ $("goBtn").addEventListener("click", async () => {
   fd.append("prompt", $("prompt").value);
   fd.append("steps", $("steps").value);
   fd.append("seed", $("seed").value.trim());
-  fd.append("preview", $("preview").checked ? "1" : "0");
+  fd.append("preview", $("livePreview").checked ? "1" : "0");
   if (state.mode === "outpaint") fd.append("ratio", state.ratio);
   else fd.append("region", state.region.join(","));
 
-  state.previewing = $("preview").checked;
+  state.previewing = $("livePreview").checked;
   setBusy(true);
   showProgress("loading"); $("phaseText").textContent = "Uploading…";
 
