@@ -757,6 +757,7 @@ function levelRoll(inv) {
 async function main() {
     let carousel = false; // hold still for the reframe preview; the user drags to orbit
     const params = new URLSearchParams(location.search);
+    const pivotDist = parseFloat(params.get("pd")) || 1; // subject depth: orbit pivot
     try {
         viewMatrix = JSON.parse(decodeURIComponent(location.hash.slice(1)));
         carousel = false;
@@ -1015,9 +1016,9 @@ async function main() {
         e.preventDefault();
         if (down == 1) {
             let inv = invert4(viewMatrix);
-            let dx = (1.5 * (e.clientX - startX)) / innerWidth;
-            let dy = (1.5 * (e.clientY - startY)) / innerHeight;
-            let d = 1; // pivot near the subject (~1 unit away) so it orbits in place
+            let dx = (-1.5 * (e.clientX - startX)) / innerWidth;
+            let dy = (-1.5 * (e.clientY - startY)) / innerHeight;
+            let d = pivotDist; // pivot at the subject's depth so it stays centered
 
             inv = translate4(inv, 0, 0, d);
             inv = rotate4(inv, dx, 0, 1, 0);

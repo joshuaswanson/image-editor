@@ -187,7 +187,14 @@ def reframe_prepare():
         sid = _prepare_splat(tmp / "input.png")
     except Exception as exc:
         return jsonify({"error": f"3D prediction failed: {exc}"}), 500
-    return jsonify({"id": sid, "width": img.width, "height": img.height})
+    # Median gaussian depth = how far the subject is, so the viewer can orbit
+    # around it (keeping the subject centered) instead of pivoting in place.
+    import numpy as np
+
+    data = np.fromfile(PLY_CACHE / f"{sid}.splat", dtype=np.uint8).reshape(-1, 32)
+    pos = np.ascontiguousarray(data[:, :12]).view(np.float32).reshape(-1, 3)
+    pivot = float(np.median(pos[:, 2]))
+    return jsonify({"id": sid, "width": img.width, "height": img.height, "pivot": pivot})
 
 
 @app.route("/api/process", methods=["POST"])
