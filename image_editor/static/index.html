@@ -80,7 +80,13 @@
   }
   button.primary:hover { filter: brightness(1.06); }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
-  button.ghost { border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+  /* Shared button style that works for both <a> and <button> */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: inherit; font-weight: 600; font-size: 14px; padding: 11px 16px; border-radius: 11px; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: filter .12s, background .12s, border-color .12s, color .12s; }
+  .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.07); }
+  .btn-secondary { background: var(--card); color: var(--ink); border-color: var(--line); }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Progress */
   .progress { margin-top: 18px; display: none; }
@@ -93,7 +99,8 @@
   .plabel .pct { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
   .err { color: var(--err); font-size: 13px; margin-top: 10px; }
 
-  .result-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .result-actions { display: flex; gap: 10px; margin-top: 16px; }
+  #downloadBtn { flex: 1; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -182,8 +189,11 @@
       </div>
 
       <div class="result-actions hidden" id="resultActions">
-        <a class="ghost" id="downloadBtn" download="edited.png">Download</a>
-        <button class="ghost" id="reuseBtn">Use as input</button>
+        <a class="btn btn-primary" id="downloadBtn" download="edited.png">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Download
+        </a>
+        <button class="btn btn-secondary" id="reuseBtn">Use as input</button>
       </div>
     </div>
   </div>
