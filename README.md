@@ -1,7 +1,5 @@
 # Image Editor
 
-*This document uses ASD-STE100 Simplified Technical English.*
-
 Image Editor is a tool for local image edits on an Apple Silicon Mac. It uses the FLUX.1-Fill-dev model through mflux. All operations run on the Metal GPU of your Mac. The tool does not send your images to a network.
 
 The tool has two interfaces: a web page and a command line.
