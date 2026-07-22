@@ -71,6 +71,8 @@
   input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
   input[type=range] { width: 100%; accent-color: var(--accent); }
   .sub { font-size: 12px; color: var(--muted); }
+  .switch { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14px; }
+  .switch input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 
   button.primary {
     width: 100%; border: 0; background: var(--accent); color: #fff; font: inherit; font-weight: 600;
@@ -164,6 +166,13 @@
         <input type="text" id="seed" inputmode="numeric" placeholder="random">
       </div>
 
+      <div class="block">
+        <label class="switch">
+          <input type="checkbox" id="preview" checked>
+          <span>Live preview <span class="sub">— watch each step (a bit slower)</span></span>
+        </label>
+      </div>
+
       <button class="primary" id="goBtn" disabled>Generate</button>
 
       <div class="progress" id="progress">
@@ -182,7 +191,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { file: null, mode: "outpaint", ratio: "1:1", region: null, natW: 0, natH: 0 };
+const state = { file: null, mode: "outpaint", ratio: "1:1", region: null, natW: 0, natH: 0, previewing: false };
 
 // ---- Upload handling ----
 const stage = $("stage"), fileInput = $("fileInput"), preview = $("preview");
@@ -193,9 +202,12 @@ fileInput.addEventListener("change", e => { if (e.target.files[0]) loadFile(e.ta
 stage.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
 
 function loadFile(file) {
-  state.file = file; state.region = null; hideRegion();
+  state.file = file; state.region = null; state.previewing = false; hideRegion();
   const url = URL.createObjectURL(file);
   preview.onload = () => {
+    // Intermediate previews stream in at a scaled-down size; don't let them
+    // clobber the reported dimensions of the real input/result image.
+    if (state.previewing) return;
     state.natW = preview.naturalWidth; state.natH = preview.naturalHeight;
     $("stageMeta").textContent = `${state.natW} × ${state.natH}px`;
     $("dropHint").classList.add("hidden");
@@ -276,9 +288,11 @@ $("goBtn").addEventListener("click", async () => {
   fd.append("prompt", $("prompt").value);
   fd.append("steps", $("steps").value);
   fd.append("seed", $("seed").value.trim());
+  fd.append("preview", $("preview").checked ? "1" : "0");
   if (state.mode === "outpaint") fd.append("ratio", state.ratio);
   else fd.append("region", state.region.join(","));
 
+  state.previewing = $("preview").checked;
   setBusy(true);
   showProgress("loading"); $("phaseText").textContent = "Uploading…";
 
@@ -293,7 +307,7 @@ $("goBtn").addEventListener("click", async () => {
     const m = JSON.parse(ev.data);
     if (m.phase === "loading") { indeterminate("Loading FLUX model… (first run only)"); }
     else if (m.phase === "preparing") { indeterminate("Preparing…"); }
-    else if (m.phase === "generating") { determinate(m.step, m.total); }
+    else if (m.phase === "generating") { determinate(m.step, m.total); if (m.preview) preview.src = m.preview; }
     else if (m.phase === "done") { src.close(); finish(m.url); }
     else if (m.phase === "error") { src.close(); flashError(m.message); setBusy(false); }
   };
@@ -315,6 +329,7 @@ function finish(url) {
   $("bar").classList.remove("indet");
   $("bar").firstElementChild.style.width = "100%";
   $("phaseText").textContent = "Done"; $("pctText").textContent = "100%";
+  state.previewing = false;  // allow the final full-res result to set dimensions
   const bust = url + "?t=" + Date.now();
   preview.src = bust;
   preview.onload = () => { state.natW = preview.naturalWidth; state.natH = preview.naturalHeight; $("stageMeta").textContent = `${state.natW} × ${state.natH}px`; };
@@ -323,7 +338,7 @@ function finish(url) {
   state.resultUrl = url;
   setBusy(false);
 }
-function flashError(msg) { showProgress(); $("errText").textContent = msg; $("errText").classList.remove("hidden"); $("phaseText").textContent = "Failed"; }
+function flashError(msg) { state.previewing = false; showProgress(); $("errText").textContent = msg; $("errText").classList.remove("hidden"); $("phaseText").textContent = "Failed"; }
 function setBusy(b) { $("goBtn").disabled = b; $("goBtn").textContent = b ? "Working…" : "Generate"; }
 
 // Reuse result as the new input for chained edits.

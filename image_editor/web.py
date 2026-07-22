@@ -40,7 +40,7 @@ def _emit(job: dict, event: "dict | None"):
     job["queue"].put(event)
 
 
-def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, params: dict):
+def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, preview_every: int, params: dict):
     job = JOBS[job_id]
     job_dir = job["dir"]
     try:
@@ -71,8 +71,11 @@ def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, params: dict
         FILL.ensure_loaded()
         _emit(job, {"phase": "preparing", "total": steps})
 
-        def on_step(current, total):
-            _emit(job, {"phase": "generating", "step": current, "total": total})
+        def on_step(current, total, preview):
+            event = {"phase": "generating", "step": current, "total": total}
+            if preview is not None:
+                event["preview"] = preview
+            _emit(job, event)
 
         result = FILL.generate(
             image_path=canvas_path,
@@ -83,6 +86,7 @@ def _run_job(job_id: str, mode: str, prompt: str, steps: int, seed, params: dict
             steps=steps,
             seed=seed,
             on_step=on_step,
+            preview_every=preview_every,
         )
 
         if crop_box is not None:
@@ -113,6 +117,8 @@ def process():
     steps = int(request.form.get("steps", 25))
     seed_raw = request.form.get("seed", "").strip()
     seed = int(seed_raw) if seed_raw else None
+    # Live preview: 1 = decode every step, 0 = off. Streamed over SSE per step.
+    preview_every = 1 if request.form.get("preview", "1") == "1" else 0
 
     job_id = uuid.uuid4().hex
     job_dir = Path(tempfile.mkdtemp(prefix=f"imgedit_{job_id}_"))
@@ -134,7 +140,7 @@ def process():
 
     threading.Thread(
         target=_run_job,
-        args=(job_id, mode, prompt, steps, seed, params),
+        args=(job_id, mode, prompt, steps, seed, preview_every, params),
         daemon=True,
     ).start()
 
