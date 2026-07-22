@@ -990,43 +990,7 @@ async function main() {
     window.addEventListener(
         "wheel",
         (e) => {
-            carousel = false;
-            e.preventDefault();
-            const lineHeight = 10;
-            const scale =
-                e.deltaMode == 1
-                    ? lineHeight
-                    : e.deltaMode == 2
-                      ? innerHeight
-                      : 1;
-            let inv = invert4(viewMatrix);
-            if (e.shiftKey) {
-                inv = translate4(
-                    inv,
-                    (e.deltaX * scale) / innerWidth,
-                    (e.deltaY * scale) / innerHeight,
-                    0,
-                );
-            } else if (e.ctrlKey || e.metaKey) {
-                // inv = rotate4(inv,  (e.deltaX * scale) / innerWidth,  0, 0, 1);
-                // inv = translate4(inv,  0, (e.deltaY * scale) / innerHeight, 0);
-                // let preY = inv[13];
-                inv = translate4(
-                    inv,
-                    0,
-                    0,
-                    (-10 * (e.deltaY * scale)) / innerHeight,
-                );
-                // inv[13] = preY;
-            } else {
-                let d = 4;
-                inv = translate4(inv, 0, 0, d);
-                inv = rotate4(inv, -(e.deltaX * scale) / innerWidth, 0, 1, 0);
-                inv = rotate4(inv, (e.deltaY * scale) / innerHeight, 1, 0, 0);
-                inv = translate4(inv, 0, 0, -d);
-            }
-
-            viewMatrix = invert4(inv);
+            // Scroll/zoom disabled for the reframe preview (yaw/pitch drag only).
         },
         { passive: false },
     );
@@ -1060,7 +1024,15 @@ async function main() {
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
             levelRoll(inv); // keep pitch/yaw only, no roll
-            viewMatrix = invert4(inv);
+            // Clamp the orbit to a cone around the front view (no more than LIMIT
+            // yaw/pitch from straight ahead); reject moves that would exceed it.
+            const LIMIT = Math.PI / 4; // 45 deg each direction
+            const fwd = [inv[8], inv[9], inv[10]];
+            const yaw = Math.atan2(fwd[0], fwd[2]);
+            const pitch = Math.atan2(fwd[1], Math.hypot(fwd[0], fwd[2]));
+            if (Math.abs(yaw) <= LIMIT && Math.abs(pitch) <= LIMIT) {
+                viewMatrix = invert4(inv);
+            }
 
             startX = e.clientX;
             startY = e.clientY;

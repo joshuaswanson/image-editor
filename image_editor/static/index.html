@@ -41,6 +41,9 @@
     border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px;
   }
   .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 16px; font-weight: 600; }
+  .stage-head { display: flex; align-items: center; justify-content: space-between; }
+  .clear-btn { border: 1px solid var(--line); background: var(--card); color: var(--muted); font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; cursor: pointer; margin-bottom: 16px; transition: color .12s, border-color .12s; }
+  .clear-btn:hover { color: var(--err); border-color: var(--err); }
 
   /* Drop / preview area */
   .stage { position: relative; border-radius: 12px; overflow: hidden; background: repeating-conic-gradient(#0000000a 0% 25%, transparent 0% 50%) 50% / 20px 20px; min-height: 260px; display: flex; align-items: center; justify-content: center; }
@@ -118,7 +121,10 @@
   <div class="grid">
     <!-- Left: image stage -->
     <div class="card">
-      <h2 id="stageTitle">Image</h2>
+      <div class="stage-head">
+        <h2 id="stageTitle">Image</h2>
+        <button id="clearBtn" class="clear-btn hidden" title="Remove image">Clear</button>
+      </div>
       <div id="stage" class="stage empty">
         <div class="drop-hint" id="dropHint">
           <span class="plus">+</span>
@@ -242,12 +248,30 @@ function loadFile(file) {
     preview.classList.remove("hidden");
     stage.classList.remove("empty");
     $("goBtn").disabled = false;
+    $("clearBtn").classList.remove("hidden");
     resetProgress();
     $("resultActions").classList.add("hidden");
     if (state.mode === "reframe") prepareReframe();
   };
   preview.src = url;
 }
+
+// ---- Clear the current image ----
+function clearImage() {
+  state.file = null; state.region = null; state.prepId = null; state.previewing = false;
+  preview.classList.add("hidden"); preview.removeAttribute("src");
+  splatFrame.classList.add("hidden"); splatFrame.src = "about:blank";
+  $("dropHint").classList.remove("hidden");
+  stage.classList.add("empty");
+  $("stageMeta").textContent = "";
+  $("clearBtn").classList.add("hidden");
+  $("goBtn").disabled = true;
+  resetProgress();
+  $("resultActions").classList.add("hidden");
+  hideRegion();
+  fileInput.value = "";
+}
+$("clearBtn").addEventListener("click", clearImage);
 
 // ---- Mode toggle ----
 $("modeSeg").addEventListener("click", e => {
