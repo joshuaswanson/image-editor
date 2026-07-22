@@ -846,6 +846,17 @@ async function main() {
     gl.vertexAttribDivisor(a_index, 1);
 
     const resize = () => {
+        // Reframe: match SHARP's field of view (fx for the original image size,
+        // passed as ?fx=&iw=&ih=) scaled to this canvas, so the splat opens with
+        // the same framing as the photo instead of the demo camera's zoom.
+        const sp = new URLSearchParams(location.search);
+        const fx0 = parseFloat(sp.get("fx"));
+        const iw0 = parseFloat(sp.get("iw"));
+        const ih0 = parseFloat(sp.get("ih"));
+        if (fx0 && iw0 && ih0) {
+            camera.fx = (innerWidth * fx0) / iw0;
+            camera.fy = (innerHeight * fx0) / ih0;
+        }
         gl.uniform2fv(u_focal, new Float32Array([camera.fx, camera.fy]));
 
         projectionMatrix = getProjectionMatrix(
@@ -1386,6 +1397,7 @@ async function main() {
     // Reframe hook: render one frame over the given background and return it as a
     // PNG data URL. Calling with black then white lets the pipeline find holes
     // (pixels that change with the background are see-through and need filling).
+    window.getView = () => viewMatrix.slice();
     window.captureFrame = (r, g, b) =>
         new Promise((resolve) => {
             window.__bg = [r, g, b];

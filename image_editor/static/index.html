@@ -283,10 +283,13 @@ async function prepareReframe() {
 
 function showSplat() {
   const url = location.origin + "/api/splat/" + state.prepId;
-  // Start at SHARP's original camera (origin, looking +z), flipping y and z for
-  // the viewer's OpenGL convention so the splat opens front-on like the photo.
-  const view = [1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1];
+  // Open at SHARP's original camera (identity = the photo's viewpoint) with a
+  // focal matched to SHARP's optics, so the splat starts framed like the photo.
+  const w = state.natW, h = state.natH;
+  const fpx = 30 * Math.sqrt(w*w + h*h) / Math.sqrt(36*36 + 24*24);
+  const view = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
   splatFrame.src = "/viewer/index.html?url=" + encodeURIComponent(url)
+    + "&fx=" + fpx.toFixed(1) + "&iw=" + w + "&ih=" + h
     + "#" + encodeURIComponent(JSON.stringify(view));
   splatFrame.classList.remove("hidden");
   preview.classList.add("hidden");
