@@ -1,97 +1,141 @@
 # Image Editor
 
-Local AI image editing on Apple Silicon. Extend an image to a new aspect ratio (outpaint) or regenerate a rectangular region of it (inpaint), powered by [FLUX.1-Fill-dev](https://huggingface.co/black-forest-labs/FLUX.1-Fill-dev) running through [mflux](https://github.com/filipstrand/mflux). Everything runs on-device on your Mac's GPU. No API keys, no accounts, and no images leave your machine.
+*This document uses ASD-STE100 Simplified Technical English.*
 
-You can use it two ways: a browser UI with a live step-by-step preview, or the command line.
+Image Editor is a tool for local image edits on an Apple Silicon Mac. It uses the FLUX.1-Fill-dev model through mflux. All operations run on the Metal GPU of your Mac. The tool does not send your images to a network.
+
+The tool has two interfaces: a web page and a command line.
+
+## Terms
+
+- Outpaint: an operation that makes the image larger and fills the new area.
+- Inpaint: an operation that fills a selected area of the image.
+- Step: one cycle of the model that removes some noise.
+- Mask: a black and white image. White shows the area to fill. Black shows the area to keep.
+- Prompt: text that tells the model what to put in the new area.
 
 ## Features
 
-- Outpaint an image to any aspect ratio without cropping the original
-- Inpaint a selected region, guided by an optional text prompt
-- Live preview that shows the image resolving from noise at each denoising step
-- Original stays crisp in the preview; only the area being generated animates
-- Model loaded once and kept resident, so only the first edit waits for load
-- Runs entirely locally on the Metal GPU via MLX
+- The tool extends an image to a new aspect ratio. It does not cut the original image.
+- The tool fills a selected area of the image. A prompt can control the new content.
+- The live preview shows the image after each step.
+- The original image stays clear in the preview. Only the new area changes.
+- The tool loads the model one time and keeps it in memory.
+- All operations run on the Metal GPU with MLX.
 
 ## Requirements
 
-- Apple Silicon Mac. FLUX.1-Fill is a ~12B model, so 32 GB of unified memory is comfortable at the default 8-bit quantization.
-- [uv](https://github.com/astral-sh/uv)
+- An Apple Silicon Mac. The model is large (about 12 billion parameters). Use a Mac with 32 GB of memory for the default 8-bit quantization.
+- uv.
 
-The FLUX weights download automatically on first use and are cached by Hugging Face afterward. The first run is slow because of that download plus model load.
+The model weights download on the first run. Hugging Face keeps the weights for later runs. The first run is slow because of this download and the model load.
 
-## Install
+## Installation
 
-```bash
+To install the tool, enter this command:
+
+```
 uv sync
 ```
 
-## Web UI
+## Web page
 
-```bash
+To start the web page, enter this command:
+
+```
 uv run image-editor-web
 ```
 
-This starts a local server (default `http://127.0.0.1:5005`) and opens it in your browser.
+The tool starts a local server. The default address is `http://127.0.0.1:5005`. The tool opens the page in your web browser.
 
-1. Drop an image onto the left panel, or click to browse.
-2. Choose **Extend** to outpaint to an aspect ratio, or **Fill region** to inpaint. In Fill region mode, drag a box on the image to mark the area to regenerate.
-3. Optionally add a prompt, set the number of steps, or fix a seed.
-4. Press **Generate**.
+To make an edit, do these steps:
 
-While it runs, a progress bar tracks every phase: model loading (first edit only), preparation, and each denoising step with a live percentage. With **Live preview** on, the panel updates every step so you watch the result form. When it finishes, use **Download** to save the result, or **Use as input** to feed it back in for a chained edit.
+1. Put an image on the left panel. To do this, move the image onto the panel, or click the panel to select a file.
+2. Select the edit type. Click **Extend** for an outpaint. Click **Fill region** for an inpaint.
+3. For an inpaint, make a box on the image. To make the box, hold the mouse button and move the pointer. The box shows the area to fill.
+4. Type a prompt if you want one. Set the number of steps. Set a seed if you want one.
+5. Click **Generate**.
 
-The model is loaded once and stays in memory, so only the first edit pays the load cost. Every edit after that starts generating immediately.
+While the model runs, a progress bar shows each phase:
 
-Options:
+- the model load (on the first edit only)
+- the preparation
+- each step, with a percentage
 
-```bash
+If **Live preview** is on, the panel shows the image after each step. As a result, you see the result as it forms.
+
+When the edit is complete, do one of these steps:
+
+- Click **Download** to save the result.
+- Click **Use as input** to put the result back as the input for a new edit.
+
+The tool loads the model one time and keeps it in memory. As a result, only the first edit waits for the load. Each edit after the first starts immediately.
+
+To change the host, the port, or the browser behavior, use these options:
+
+```
 uv run image-editor-web --host 0.0.0.0 --port 8000 --no-browser
 ```
 
 ## Command line
 
-The CLI reloads the model on every invocation, so for repeated edits the web UI is faster. The CLI is handy for one-off or scripted runs.
+The command line tools load the model on each command. As a result, the web page is faster for more than one edit. Use the command line for a single edit or for a script.
 
-### Outpaint (extend to an aspect ratio)
+### Outpaint command
 
-Extends the image, without cropping, until it matches the target ratio. New dimensions are rounded up to a multiple of 16.
+The outpaint command makes the image larger to the given aspect ratio. It does not cut the image. The tool increases each new dimension to a multiple of 16.
 
-```bash
+```
 uv run outpaint image.jpeg 1:1
 uv run outpaint image.jpeg 16:9 --prompt "a wide mountain landscape" --steps 30
 ```
 
-Arguments: `outpaint <image> <ratio> [--prompt TEXT] [--steps N] [--guidance G] [--seed S] [--output PATH]`
+Command format:
 
-Default output is `<input>_outpainted.png`.
+```
+outpaint <image> <ratio> [--prompt TEXT] [--steps N] [--guidance G] [--seed S] [--output PATH]
+```
 
-### Inpaint (regenerate a region)
+The default output file is `<input>_outpainted.png`.
 
-Regenerates the rectangular region given by `x1,y1,x2,y2`, leaving the rest untouched.
+### Inpaint command
 
-```bash
+The inpaint command fills the rectangular area `x1,y1,x2,y2`. It keeps the other parts of the image.
+
+```
 uv run inpaint image.jpeg --region 100,100,400,400 --prompt "a bunch of flowers"
 ```
 
-Arguments: `inpaint <image> --region x1,y1,x2,y2 [--prompt TEXT] [--steps N] [--guidance G] [--seed S] [--output PATH]`
+Command format:
 
-Default output is `<input>_inpainted.png`.
+```
+inpaint <image> --region x1,y1,x2,y2 [--prompt TEXT] [--steps N] [--guidance G] [--seed S] [--output PATH]
+```
 
-## How it works
+The default output file is `<input>_inpainted.png`.
 
-Both outpaint and inpaint are the same operation underneath: build a canvas and a mask, then let FLUX.1-Fill regenerate the masked area.
+## How the tool works
 
-- **Outpaint** centers the original on a larger canvas and masks the new border.
-- **Inpaint** keeps the original as the canvas and masks the region you selected.
+An outpaint and an inpaint use the same operation. The tool makes a canvas and a mask. Then the model fills the area that the mask shows.
 
-FLUX.1-Fill does not freeze the kept pixels. It denoises the whole canvas from noise while using the original as a conditioning reference, then reconstructs the kept area to match. That is why, in the live preview, the whole image starts fuzzy. To make the preview match intuition, the app composites your original back over the kept region on each preview frame, so only the generated area shows the in-progress model output.
+- For an outpaint, the tool puts the original image at the center of a larger canvas. The mask shows the new border.
+- For an inpaint, the tool uses the original image as the canvas. The mask shows the area that you selected.
 
-The live preview works by decoding each step's latents through the VAE into a small image and streaming it to the browser over Server-Sent Events. That extra decode per step is why Live preview is slightly slower, and why it is a toggle.
+The model does not keep the original pixels fixed. The model removes noise from the full canvas. At the same time, the model uses the original image as an example. Then the model makes the kept area again to match the original. For this reason, the full image is fuzzy at the start of the live preview.
 
-## Notes and tips
+The tool puts your original image on the kept area of each preview frame. As a result, only the new area shows the model output during the edit.
 
-- A prompt is optional. When omitted, the fill is guided only by the surrounding image.
-- More steps means higher quality and longer runtime. The default is 25. Returns diminish past about 35.
-- Generation time scales with resolution, so large canvases take longer per step.
-- The final downloaded image contains FLUX's reconstruction of the kept region, which can differ slightly from your original pixels. The preview overlay does not change the saved file.
+The live preview works in this way:
+
+1. The model completes a step.
+2. The tool decodes the step data into a small image.
+3. The tool sends the image to the browser with Server-Sent Events.
+
+The decode adds time to each step. For this reason, Live preview is an option that you can turn off.
+
+## Notes
+
+- A prompt is optional. If you do not give a prompt, the model uses only the image around the area.
+- More steps give better quality but a longer time. The default is 25 steps. More than 35 steps gives a small change only.
+- A larger canvas needs more time for each step.
+- The saved file has the model's version of the kept area. This can be a little different from your original pixels. The preview overlay does not change the saved file.
