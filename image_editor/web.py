@@ -157,14 +157,19 @@ def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
 
+def _no_cache(resp):
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
+
 @app.route("/viewer/")
 def viewer_index():
-    return send_from_directory(VIEWER_DIR, "index.html")
+    return _no_cache(send_from_directory(VIEWER_DIR, "index.html"))
 
 
 @app.route("/viewer/<path:filename>")
 def viewer(filename):
-    return send_from_directory(VIEWER_DIR, filename)
+    return _no_cache(send_from_directory(VIEWER_DIR, filename))
 
 
 @app.route("/api/splat/<sid>")

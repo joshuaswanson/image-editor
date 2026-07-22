@@ -1,6 +1,6 @@
 # Image Editor
 
-A simple CLI and GUI for inpainting and outpainting with FLUX.1-Fill-dev. It runs locally on an Apple Silicon Mac through mflux, on the Metal GPU. No images leave your machine.
+A simple CLI and GUI for inpainting and outpainting with FLUX.1-Fill-dev. It also reframes a photo by moving the camera in 3D. It runs locally on an Apple Silicon Mac through mflux, on the Metal GPU. No images leave your machine.
 
 ## Requirements
 
@@ -34,6 +34,20 @@ To change the host, the port, or the browser behavior, use these options:
 ```
 uv run image-editor-web --host 0.0.0.0 --port 8000 --no-browser
 ```
+
+## Reframe
+
+Reframe moves the camera in a photo after you take it, then fills the areas that the move reveals. It is a mode in the web page.
+
+Reframe needs extra dependencies. Install them one time:
+
+```
+uv sync --extra reframe
+```
+
+To reframe, open the web page, load an image, and select the **Reframe** mode. The tool uses Apple's SHARP model to turn the photo into a 3D Gaussian splat and shows the splat in the image panel. Drag the splat to choose a new viewpoint, then click **Generate**. FLUX.1-Fill paints the newly revealed areas.
+
+The SHARP model downloads on the first reframe (about 3 GB) and is used only for research. Small camera moves give the best results.
 
 ## Command line
 

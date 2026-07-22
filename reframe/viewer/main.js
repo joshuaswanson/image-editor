@@ -1016,8 +1016,8 @@ async function main() {
         e.preventDefault();
         if (down == 1) {
             let inv = invert4(viewMatrix);
-            let dx = (-1.5 * (e.clientX - startX)) / innerWidth;
-            let dy = (-1.5 * (e.clientY - startY)) / innerHeight;
+            let dx = (1.5 * (e.clientX - startX)) / innerWidth;
+            let dy = (1.5 * (e.clientY - startY)) / innerHeight;
             let d = pivotDist; // pivot at the subject's depth so it stays centered
 
             inv = translate4(inv, 0, 0, d);
