@@ -34,12 +34,16 @@ def normalize_prompt(prompt: str | None) -> str:
 StepCallback = Callable[[int, int, "str | None"], None]
 
 
-def _latents_to_data_url(model, latents, config) -> str:
+def _latents_to_data_url(model, latents, config, overlay=None, mask=None) -> str:
     """Decode a step's latents to a small JPEG data URL for live preview.
 
     This mirrors what mflux does at the end of generation (unpack the packed
     latents, then VAE-decode), but on the in-flight latents so the caller can
     watch the image resolve. The extra decode is the cost of the preview.
+
+    When overlay (the original placed on the canvas) and mask (white = the area
+    being regenerated) are given, the original is composited back over the kept
+    region so only the generated area shows the in-progress model output.
     """
     # Imported lazily to keep importing this module (and the CLI) cheap.
     from mflux.models.flux.latent_creator.flux_latent_creator import FluxLatentCreator
@@ -48,6 +52,11 @@ def _latents_to_data_url(model, latents, config) -> str:
     unpacked = FluxLatentCreator.unpack_latents(latents=latents, height=config.height, width=config.width)
     decoded = model.vae.decode(unpacked)
     image = ImageUtil._numpy_to_pil(ImageUtil._to_numpy(ImageUtil._denormalize(decoded)))
+    if overlay is not None and mask is not None:
+        if overlay.size != image.size:  # guard against any rounding mismatch
+            overlay = overlay.resize(image.size)
+            mask = mask.resize(image.size)
+        image = Image.composite(image, overlay, mask)
     image.thumbnail((PREVIEW_MAX_SIDE, PREVIEW_MAX_SIDE))
     buffer = BytesIO()
     image.save(buffer, format="JPEG", quality=80)
@@ -61,17 +70,19 @@ class _ProgressSubscriber:
     passes it along, so the caller can render intermediate results.
     """
 
-    def __init__(self, on_step: StepCallback, model=None, preview_every: int = 0):
+    def __init__(self, on_step: StepCallback, model=None, preview_every: int = 0, overlay=None, mask=None):
         self.on_step = on_step
         self.model = model
         self.preview_every = preview_every
+        self.overlay = overlay
+        self.mask = mask
 
     def call_in_loop(self, t, seed, prompt, latents, config, time_steps):
         total = config.num_inference_steps
         current = min(t - config.init_time_step + 1, total)
         preview = None
         if self.preview_every and (current % self.preview_every == 0 or current == total):
-            preview = _latents_to_data_url(self.model, latents, config)
+            preview = _latents_to_data_url(self.model, latents, config, self.overlay, self.mask)
         self.on_step(current, total, preview)
 
 
@@ -116,11 +127,14 @@ class FillModel:
         seed: int | None = None,
         on_step: StepCallback | None = None,
         preview_every: int = 0,
+        preview_overlay: bool = True,
     ) -> Image.Image:
         """Run a single fill and return the generated PIL image.
 
         preview_every controls live previews: 0 disables them, N decodes and
         forwards an intermediate image every Nth step (and on the final step).
+        preview_overlay keeps the original crisp in the preview by compositing
+        it back over the kept region, so only the generated area animates.
         """
         from mflux.callbacks.callback_registry import CallbackRegistry
 
@@ -129,7 +143,15 @@ class FillModel:
         with self._run_lock:
             registry = CallbackRegistry()
             if on_step is not None:
-                registry.register(_ProgressSubscriber(on_step, model=self._model, preview_every=preview_every))
+                overlay = mask = None
+                if preview_every and preview_overlay:
+                    overlay = Image.open(image_path).convert("RGB")
+                    mask = Image.open(mask_path).convert("L")
+                registry.register(
+                    _ProgressSubscriber(
+                        on_step, model=self._model, preview_every=preview_every, overlay=overlay, mask=mask
+                    )
+                )
             self._model.callbacks = registry
 
             generated = self._model.generate_image(
